@@ -146,14 +146,39 @@ fi
 
 # Ask for hostname
 echo ""
-echo -e "  ${CYAN}Enter the full hostname for SSH access:${NC}"
-echo -e "  Example: ${GREEN}my-mac-ssh.example.com${NC}"
-echo ""
-read -p "  Hostname: " SSH_HOSTNAME </dev/tty
+
+# Auto-detect domain from CF cert.pem
+CF_DOMAIN=""
+if [ -f "$HOME/.cloudflared/cert.pem" ]; then
+    # cert.pem contains an X.509 cert — extract domain from Subject or SAN
+    CF_DOMAIN=$(openssl x509 -in "$HOME/.cloudflared/cert.pem" -noout -text 2>/dev/null \
+        | grep -oP 'DNS:\*?\.\K[a-z0-9.-]+' | head -1 || true)
+    # Fallback: try subject CN
+    if [ -z "$CF_DOMAIN" ]; then
+        CF_DOMAIN=$(openssl x509 -in "$HOME/.cloudflared/cert.pem" -noout -subject 2>/dev/null \
+            | grep -oP 'CN\s*=\s*\*?\.\K[a-z0-9.-]+' || true)
+    fi
+fi
+
+if [ -n "$CF_DOMAIN" ]; then
+    ok "Detected domain: $CF_DOMAIN"
+    echo -e "  ${CYAN}Enter subdomain for SSH access (e.g. my-mac-ssh):${NC}"
+    echo ""
+    read -p "  Subdomain: " SSH_SUB </dev/tty
+    SSH_SUB=${SSH_SUB:-${TUNNEL_NAME}-ssh}
+    SSH_HOSTNAME="${SSH_SUB}.${CF_DOMAIN}"
+else
+    echo -e "  ${CYAN}Enter the full hostname for SSH access:${NC}"
+    echo -e "  Example: ${GREEN}my-mac-ssh.example.com${NC}"
+    echo ""
+    read -p "  Hostname: " SSH_HOSTNAME </dev/tty
+fi
 
 if [ -z "$SSH_HOSTNAME" ]; then
     fail "Hostname is required."
 fi
+
+echo -e "  → ${GREEN}${SSH_HOSTNAME}${NC}"
 
 # Write tunnel config
 CRED_FILE="$HOME/.cloudflared/${TUNNEL_ID}.json"
