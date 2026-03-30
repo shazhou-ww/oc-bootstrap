@@ -119,7 +119,7 @@ echo ""
 
 # Start quick tunnel in background, capture the URL
 TUNNEL_LOG="/tmp/oc-bootstrap-tunnel.log"
-cloudflared tunnel --url ssh://localhost:22 &>"$TUNNEL_LOG" &
+cloudflared tunnel --url tcp://localhost:22 --protocol http2 &>"$TUNNEL_LOG" &
 TUNNEL_PID=$!
 
 # Wait for the URL to appear
@@ -158,7 +158,12 @@ echo -e "  ${CYAN}PID:${NC}        $TUNNEL_PID"
 echo ""
 echo -e "  ${YELLOW}📋 Send this to your buddy agent:${NC}"
 echo ""
-echo -e "  ${BOLD}${GREEN}ssh -o ProxyCommand=\"cloudflared access ssh --hostname ${SSH_HOST}\" ${LOCAL_USER}@${SSH_HOST}${NC}"
+echo -e "  ${BOLD}${GREEN}Tunnel: ${SSH_HOST}${NC}"
+echo -e "  ${BOLD}${GREEN}User:   ${LOCAL_USER}${NC}"
+echo ""
+echo -e "  ${CYAN}Buddy agent connects with:${NC}"
+echo -e "  ${GREEN}cloudflared access tcp --hostname ${SSH_HOST} --url localhost:2222${NC}"
+echo -e "  ${GREEN}ssh -p 2222 ${LOCAL_USER}@localhost${NC}"
 echo ""
 echo -e "  ${CYAN}Notes:${NC}"
 echo -e "  • This URL is ${YELLOW}temporary${NC} — it changes if the tunnel restarts"
