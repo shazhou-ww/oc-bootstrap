@@ -147,17 +147,12 @@ fi
 # Ask for hostname
 echo ""
 
-# Auto-detect domain from CF cert.pem
+# Try to detect domain via Cloudflare API (if token available)
 CF_DOMAIN=""
-if [ -f "$HOME/.cloudflared/cert.pem" ]; then
-    # cert.pem contains an X.509 cert — extract domain from Subject or SAN
-    CF_DOMAIN=$(openssl x509 -in "$HOME/.cloudflared/cert.pem" -noout -text 2>/dev/null \
-        | grep -oP 'DNS:\*?\.\K[a-z0-9.-]+' | head -1 || true)
-    # Fallback: try subject CN
-    if [ -z "$CF_DOMAIN" ]; then
-        CF_DOMAIN=$(openssl x509 -in "$HOME/.cloudflared/cert.pem" -noout -subject 2>/dev/null \
-            | grep -oP 'CN\s*=\s*\*?\.\K[a-z0-9.-]+' || true)
-    fi
+if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+    CF_DOMAIN=$(curl -s "https://api.cloudflare.com/client/v4/zones?per_page=1" \
+        -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" 2>/dev/null \
+        | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
 fi
 
 if [ -n "$CF_DOMAIN" ]; then
