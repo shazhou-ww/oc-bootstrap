@@ -55,7 +55,7 @@ else
         echo -e "  Please enable it manually:"
         echo -e "  ${CYAN}System Settings → General → Sharing → Remote Login → ON${NC}"
         echo ""
-        read -p "  Press Enter after you've enabled SSH (or Ctrl+C to cancel)..." _
+        read -p "  Press Enter after you've enabled SSH (or Ctrl+C to cancel)..." _ </dev/tty
         if nc -z localhost 22 2>/dev/null; then
             ok "SSH is now running"
         else
@@ -124,7 +124,7 @@ fi
 
 # Ask for tunnel name
 echo ""
-read -p "  Enter a name for this tunnel (e.g. sora): " TUNNEL_NAME
+read -p "  Enter a name for this tunnel (e.g. sora): " TUNNEL_NAME </dev/tty
 TUNNEL_NAME=${TUNNEL_NAME:-sora}
 
 # Create tunnel (or use existing)
@@ -149,7 +149,7 @@ echo ""
 echo -e "  ${CYAN}What hostname should point to this machine's SSH?${NC}"
 echo -e "  Example: ${GREEN}sora-ssh.shazhou.work${NC}"
 echo ""
-read -p "  Hostname: " SSH_HOSTNAME
+read -p "  Hostname: " SSH_HOSTNAME </dev/tty
 SSH_HOSTNAME=${SSH_HOSTNAME:-sora-ssh.shazhou.work}
 
 # Write tunnel config
