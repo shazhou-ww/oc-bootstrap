@@ -3,7 +3,7 @@
 # OpenClaw Bootstrap — macOS
 # 
 # 一行命令：开 SSH + 建 Cloudflare Tunnel + 注入 buddy 公钥
-# 用法: curl -fsSL https://raw.githubusercontent.com/shazhou-ww/oc-bootstrap/main/bootstrap-macos.sh | bash
+# 用法: bash <(curl -fsSL https://raw.githubusercontent.com/shazhou-ww/oc-bootstrap/main/bootstrap-macos.sh)
 # ============================================================
 set -euo pipefail
 

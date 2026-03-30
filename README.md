@@ -16,7 +16,7 @@ One-line scripts to bootstrap a new device for OpenClaw onboarding.
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shazhou-ww/oc-bootstrap/main/bootstrap-macos.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/shazhou-ww/oc-bootstrap/main/bootstrap-macos.sh)
 ```
 
 The script will interactively ask you for:
