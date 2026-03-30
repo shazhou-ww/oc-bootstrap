@@ -124,8 +124,8 @@ fi
 
 # Ask for tunnel name
 echo ""
-read -p "  Enter a name for this tunnel (e.g. sora): " TUNNEL_NAME </dev/tty
-TUNNEL_NAME=${TUNNEL_NAME:-sora}
+read -p "  Enter a name for this tunnel (e.g. my-mac): " TUNNEL_NAME </dev/tty
+TUNNEL_NAME=${TUNNEL_NAME:-my-mac}
 
 # Create tunnel (or use existing)
 TUNNEL_ID=""
@@ -144,22 +144,34 @@ else
     ok "Tunnel created (ID: $TUNNEL_ID)"
 fi
 
-# Ask for hostname
+# Ask for hostname (subdomain only — domain is auto-detected from CF login)
 echo ""
-echo -e "  ${CYAN}What hostname should point to this machine's SSH?${NC}"
-echo -e "  Example: ${GREEN}sora-ssh.shazhou.work${NC}"
+echo -e "  ${CYAN}Enter the subdomain for SSH access:${NC}"
+echo -e "  Example: ${GREEN}my-mac-ssh${NC}"
+echo -e "  (will be combined with your Cloudflare domain automatically)"
 echo ""
-read -p "  Hostname: " SSH_HOSTNAME </dev/tty
-SSH_HOSTNAME=${SSH_HOSTNAME:-sora-ssh.shazhou.work}
+
+# Detect domain from cert.pem
+CF_DOMAIN=""
+if [ -f "$HOME/.cloudflared/cert.pem" ]; then
+    CF_DOMAIN=$(openssl x509 -in "$HOME/.cloudflared/cert.pem" -noout -subject 2>/dev/null | sed -n 's/.*CN *= *\*\.\(.*\)/\1/p' || true)
+fi
+if [ -z "$CF_DOMAIN" ]; then
+    read -p "  Your Cloudflare domain (e.g. example.com): " CF_DOMAIN </dev/tty
+fi
+
+read -p "  Subdomain: " SSH_SUBDOMAIN </dev/tty
+SSH_SUBDOMAIN=${SSH_SUBDOMAIN:-${TUNNEL_NAME}-ssh}
+SSH_HOSTNAME="${SSH_SUBDOMAIN}.${CF_DOMAIN}"
+echo -e "  → Full hostname: ${GREEN}${SSH_HOSTNAME}${NC}"
 
 # Write tunnel config
 CRED_FILE="$HOME/.cloudflared/${TUNNEL_ID}.json"
 CONFIG_FILE="$HOME/.cloudflared/config.yml"
 
 if [ -f "$CONFIG_FILE" ]; then
-    warn "Config file already exists at $CONFIG_FILE"
-    echo -e "  Backing up to ${CONFIG_FILE}.bak"
     cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+    info "Existing config backed up to ${CONFIG_FILE}.bak"
 fi
 
 cat > "$CONFIG_FILE" <<EOF
@@ -184,18 +196,18 @@ info "Starting tunnel..."
 echo -e "  ${CYAN}(This will run in the background. Use Ctrl+C later to stop.)${NC}"
 echo ""
 
-# Try to install as service first
-if cloudflared service install 2>/dev/null; then
-    ok "Tunnel installed as system service (auto-start on boot)"
+# Start tunnel in background
+info "Starting tunnel..."
+
+nohup cloudflared tunnel run "$TUNNEL_NAME" &>/tmp/cloudflared.log &
+sleep 3
+if pgrep -f "cloudflared tunnel run" >/dev/null; then
+    ok "Tunnel running (PID: $(pgrep -f "cloudflared tunnel run" | head -1))"
+    echo ""
+    echo -e "  ${CYAN}Tip: To keep it running after reboot:${NC}"
+    echo -e "  ${GREEN}sudo cloudflared service install${NC}"
 else
-    warn "Could not install as service. Starting in background..."
-    nohup cloudflared tunnel run "$TUNNEL_NAME" &>/tmp/cloudflared.log &
-    sleep 3
-    if pgrep -f "cloudflared tunnel run" >/dev/null; then
-        ok "Tunnel running (PID: $(pgrep -f "cloudflared tunnel run" | head -1))"
-    else
-        warn "Tunnel may not have started. Check: cat /tmp/cloudflared.log"
-    fi
+    warn "Tunnel may not have started. Check: cat /tmp/cloudflared.log"
 fi
 
 # ============================================================
