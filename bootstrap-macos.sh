@@ -144,26 +144,16 @@ else
     ok "Tunnel created (ID: $TUNNEL_ID)"
 fi
 
-# Ask for hostname (subdomain only — domain is auto-detected from CF login)
+# Ask for hostname
 echo ""
-echo -e "  ${CYAN}Enter the subdomain for SSH access:${NC}"
-echo -e "  Example: ${GREEN}my-mac-ssh${NC}"
-echo -e "  (will be combined with your Cloudflare domain automatically)"
+echo -e "  ${CYAN}Enter the full hostname for SSH access:${NC}"
+echo -e "  Example: ${GREEN}my-mac-ssh.example.com${NC}"
 echo ""
+read -p "  Hostname: " SSH_HOSTNAME </dev/tty
 
-# Detect domain from cert.pem
-CF_DOMAIN=""
-if [ -f "$HOME/.cloudflared/cert.pem" ]; then
-    CF_DOMAIN=$(openssl x509 -in "$HOME/.cloudflared/cert.pem" -noout -subject 2>/dev/null | sed -n 's/.*CN *= *\*\.\(.*\)/\1/p' || true)
+if [ -z "$SSH_HOSTNAME" ]; then
+    fail "Hostname is required."
 fi
-if [ -z "$CF_DOMAIN" ]; then
-    read -p "  Your Cloudflare domain (e.g. example.com): " CF_DOMAIN </dev/tty
-fi
-
-read -p "  Subdomain: " SSH_SUBDOMAIN </dev/tty
-SSH_SUBDOMAIN=${SSH_SUBDOMAIN:-${TUNNEL_NAME}-ssh}
-SSH_HOSTNAME="${SSH_SUBDOMAIN}.${CF_DOMAIN}"
-echo -e "  → Full hostname: ${GREEN}${SSH_HOSTNAME}${NC}"
 
 # Write tunnel config
 CRED_FILE="$HOME/.cloudflared/${TUNNEL_ID}.json"
