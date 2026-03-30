@@ -90,12 +90,24 @@ step 3 "Install & configure Cloudflare Tunnel"
 if command -v cloudflared &>/dev/null; then
     ok "cloudflared already installed ($(cloudflared --version 2>&1 | head -1))"
 else
-    info "Installing cloudflared via Homebrew..."
-    if ! command -v brew &>/dev/null; then
-        fail "Homebrew not found. Install it first: https://brew.sh"
+    if command -v brew &>/dev/null; then
+        info "Installing cloudflared via Homebrew..."
+        brew install cloudflared
+    else
+        info "Homebrew not found, downloading cloudflared binary directly..."
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "arm64" ]; then
+            CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
+        else
+            CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+        fi
+        curl -fsSL "$CF_URL" -o /tmp/cloudflared.tgz
+        tar -xzf /tmp/cloudflared.tgz -C /tmp/
+        sudo mv /tmp/cloudflared /usr/local/bin/cloudflared
+        sudo chmod +x /usr/local/bin/cloudflared
+        rm -f /tmp/cloudflared.tgz
     fi
-    brew install cloudflared
-    ok "cloudflared installed"
+    ok "cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
 fi
 
 # Login to Cloudflare (requires browser)
