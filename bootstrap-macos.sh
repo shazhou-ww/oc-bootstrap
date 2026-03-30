@@ -27,19 +27,32 @@ echo -e "${CYAN}║   🌌 OpenClaw Bootstrap — macOS      ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
 echo ""
 
-# --- Step 1: Enable Remote Login (SSH) ---
+# --- Step 1: Check SSH ---
 info "Checking SSH (Remote Login)..."
 
+SSH_ON=false
 if sudo systemsetup -getremotelogin 2>/dev/null | grep -q "On"; then
+    SSH_ON=true
     ok "SSH already enabled"
-else
-    info "Enabling Remote Login (requires admin password)..."
-    sudo systemsetup -setremotelogin on
-    if sudo systemsetup -getremotelogin 2>/dev/null | grep -q "On"; then
-        ok "SSH enabled"
-    else
-        fail "Could not enable SSH. Please enable manually:\n  System Settings → General → Sharing → Remote Login → ON"
-    fi
+elif ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no localhost true 2>/dev/null; then
+    SSH_ON=true
+    ok "SSH is running"
+fi
+
+if [ "$SSH_ON" = false ]; then
+    echo ""
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW} SSH (Remote Login) is not enabled.${NC}"
+    echo -e "${YELLOW} Please enable it manually, then re-run this script:${NC}"
+    echo ""
+    echo -e "  ${CYAN}macOS Ventura+:${NC}"
+    echo -e "    System Settings → General → Sharing → Remote Login → ON"
+    echo ""
+    echo -e "  ${CYAN}Or via terminal:${NC}"
+    echo -e "    sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
+    echo ""
+    fail "Enable SSH first, then run this script again."
 fi
 
 # --- Step 2: Inject buddy public key ---
