@@ -2,7 +2,7 @@
 # ============================================================
 # OpenClaw Bootstrap — macOS
 # 
-# 一行命令：开 SSH + 建 Cloudflare Tunnel + 注入 buddy 公钥
+# 开 SSH + 通过 Cloudflare Quick Tunnel 暴露给 buddy agent
 # 用法: bash <(curl -fsSL https://raw.githubusercontent.com/shazhou-ww/oc-bootstrap/main/bootstrap-macos.sh)
 # ============================================================
 set -euo pipefail
@@ -83,10 +83,9 @@ else
 fi
 
 # ============================================================
-step 3 "Install & configure Cloudflare Tunnel"
+step 3 "Install cloudflared"
 # ============================================================
 
-# Install cloudflared
 if command -v cloudflared &>/dev/null; then
     ok "cloudflared already installed ($(cloudflared --version 2>&1 | head -1))"
 else
@@ -94,7 +93,7 @@ else
         info "Installing cloudflared via Homebrew..."
         brew install cloudflared
     else
-        info "Homebrew not found, downloading cloudflared binary directly..."
+        info "Downloading cloudflared binary..."
         ARCH=$(uname -m)
         if [ "$ARCH" = "arm64" ]; then
             CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
@@ -110,141 +109,59 @@ else
     ok "cloudflared installed ($(cloudflared --version 2>&1 | head -1))"
 fi
 
-# Login to Cloudflare (requires browser)
-if [ -f "$HOME/.cloudflared/cert.pem" ]; then
-    ok "Already logged in to Cloudflare"
-else
-    echo ""
-    echo -e "${YELLOW}  🌐 A browser window will open for Cloudflare login.${NC}"
-    echo -e "  ${YELLOW}Select the domain you want to use (e.g. shazhou.work)${NC}"
-    echo ""
-    cloudflared tunnel login
-    ok "Cloudflare login complete"
-fi
+# ============================================================
+step 4 "Start Quick Tunnel"
+# ============================================================
 
-# Ask for tunnel name
+info "Starting Cloudflare Quick Tunnel (no account needed)..."
+info "This gives you a temporary public URL for SSH access."
 echo ""
-read -p "  Enter a name for this tunnel (e.g. my-mac): " TUNNEL_NAME </dev/tty
-TUNNEL_NAME=${TUNNEL_NAME:-my-mac}
 
-# Create tunnel (or use existing)
-TUNNEL_ID=""
-EXISTING=$(cloudflared tunnel list 2>/dev/null | grep -i "$TUNNEL_NAME" | awk '{print $1}' || true)
-if [ -n "$EXISTING" ]; then
-    TUNNEL_ID="$EXISTING"
-    ok "Tunnel '$TUNNEL_NAME' already exists (ID: $TUNNEL_ID)"
-else
-    info "Creating tunnel '$TUNNEL_NAME'..."
-    TUNNEL_OUTPUT=$(cloudflared tunnel create "$TUNNEL_NAME" 2>&1)
-    TUNNEL_ID=$(echo "$TUNNEL_OUTPUT" | grep -oE '[0-9a-f-]{36}' | head -1)
-    if [ -z "$TUNNEL_ID" ]; then
-        echo "$TUNNEL_OUTPUT"
-        fail "Could not create tunnel. See output above."
+# Start quick tunnel in background, capture the URL
+TUNNEL_LOG="/tmp/oc-bootstrap-tunnel.log"
+cloudflared tunnel --url ssh://localhost:22 &>"$TUNNEL_LOG" &
+TUNNEL_PID=$!
+
+# Wait for the URL to appear
+SSH_URL=""
+for i in $(seq 1 30); do
+    SSH_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1 || true)
+    if [ -n "$SSH_URL" ]; then
+        break
     fi
-    ok "Tunnel created (ID: $TUNNEL_ID)"
+    sleep 1
+done
+
+if [ -z "$SSH_URL" ]; then
+    warn "Could not detect tunnel URL. Check: cat $TUNNEL_LOG"
+    fail "Quick Tunnel failed to start."
 fi
 
-# Ask for hostname
-echo ""
-
-# Try to detect domain via Cloudflare API (if token available)
-CF_DOMAIN=""
-if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
-    CF_DOMAIN=$(curl -s "https://api.cloudflare.com/client/v4/zones?per_page=1" \
-        -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" 2>/dev/null \
-        | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
-fi
-
-if [ -n "$CF_DOMAIN" ]; then
-    ok "Detected domain: $CF_DOMAIN"
-    echo -e "  ${CYAN}Enter subdomain for SSH access (e.g. my-mac-ssh):${NC}"
-    echo ""
-    read -p "  Subdomain: " SSH_SUB </dev/tty
-    SSH_SUB=${SSH_SUB:-${TUNNEL_NAME}-ssh}
-    SSH_HOSTNAME="${SSH_SUB}.${CF_DOMAIN}"
-else
-    echo -e "  ${CYAN}Enter the full hostname for SSH access:${NC}"
-    echo -e "  Example: ${GREEN}my-mac-ssh.example.com${NC}"
-    echo ""
-    read -p "  Hostname: " SSH_HOSTNAME </dev/tty
-fi
-
-if [ -z "$SSH_HOSTNAME" ]; then
-    fail "Hostname is required."
-fi
-
-echo -e "  → ${GREEN}${SSH_HOSTNAME}${NC}"
-
-# Write tunnel config
-CRED_FILE="$HOME/.cloudflared/${TUNNEL_ID}.json"
-CONFIG_FILE="$HOME/.cloudflared/config.yml"
-
-if [ -f "$CONFIG_FILE" ]; then
-    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
-    info "Existing config backed up to ${CONFIG_FILE}.bak"
-fi
-
-cat > "$CONFIG_FILE" <<EOF
-tunnel: ${TUNNEL_ID}
-credentials-file: ${CRED_FILE}
-
-ingress:
-  - hostname: ${SSH_HOSTNAME}
-    service: ssh://localhost:22
-  - service: http_status:404
-EOF
-
-ok "Tunnel config written to $CONFIG_FILE"
-
-# Create DNS record
-info "Creating DNS record for $SSH_HOSTNAME..."
-cloudflared tunnel route dns "$TUNNEL_NAME" "$SSH_HOSTNAME" 2>&1 || warn "DNS record may already exist (that's fine)"
-ok "DNS configured: $SSH_HOSTNAME → tunnel $TUNNEL_NAME"
-
-# Start tunnel
-info "Starting tunnel..."
-echo -e "  ${CYAN}(This will run in the background. Use Ctrl+C later to stop.)${NC}"
-echo ""
-
-# Start tunnel in background
-info "Starting tunnel..."
-
-nohup cloudflared tunnel run "$TUNNEL_NAME" &>/tmp/cloudflared.log &
-sleep 3
-if pgrep -f "cloudflared tunnel run" >/dev/null; then
-    ok "Tunnel running (PID: $(pgrep -f "cloudflared tunnel run" | head -1))"
-    echo ""
-    echo -e "  ${CYAN}Tip: To keep it running after reboot:${NC}"
-    echo -e "  ${GREEN}sudo cloudflared service install${NC}"
-else
-    warn "Tunnel may not have started. Check: cat /tmp/cloudflared.log"
-fi
-
-# ============================================================
-step 4 "Summary"
-# ============================================================
-
+# Extract hostname from URL
+SSH_HOST=$(echo "$SSH_URL" | sed 's|https://||')
 LOCAL_USER=$(whoami)
 
+ok "Tunnel running (PID: $TUNNEL_PID)"
+
+# ============================================================
+step 5 "Summary"
+# ============================================================
+
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         ✅ Bootstrap Complete!            ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║              ✅ Bootstrap Complete!               ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}User:${NC}         $LOCAL_USER"
-echo -e "  ${CYAN}Tunnel:${NC}       $TUNNEL_NAME ($TUNNEL_ID)"
-echo -e "  ${CYAN}SSH Host:${NC}     $SSH_HOSTNAME"
+echo -e "  ${CYAN}User:${NC}       $LOCAL_USER"
+echo -e "  ${CYAN}Tunnel:${NC}     $SSH_HOST"
+echo -e "  ${CYAN}PID:${NC}        $TUNNEL_PID"
 echo ""
 echo -e "  ${YELLOW}📋 Send this to your buddy agent:${NC}"
 echo ""
-echo -e "  ${BOLD}${GREEN}ssh -o ProxyCommand=\"cloudflared access ssh --hostname ${SSH_HOSTNAME}\" ${LOCAL_USER}@${SSH_HOSTNAME}${NC}"
+echo -e "  ${BOLD}${GREEN}ssh -o ProxyCommand=\"cloudflared access ssh --hostname ${SSH_HOST}\" ${LOCAL_USER}@${SSH_HOST}${NC}"
 echo ""
-echo -e "  ${CYAN}Or if buddy uses standard SSH with cloudflared config:${NC}"
-echo -e "  Add to buddy's ~/.ssh/config:"
-echo ""
-echo -e "    Host ${SSH_HOSTNAME}"
-echo -e "      ProxyCommand cloudflared access ssh --hostname %h"
-echo -e "      User ${LOCAL_USER}"
-echo ""
-echo -e "  ${CYAN}Then simply:${NC} ${GREEN}ssh ${SSH_HOSTNAME}${NC}"
+echo -e "  ${CYAN}Notes:${NC}"
+echo -e "  • This URL is ${YELLOW}temporary${NC} — it changes if the tunnel restarts"
+echo -e "  • Keep this terminal open (or the tunnel will stop)"
+echo -e "  • Your buddy agent will set up a permanent tunnel later"
 echo ""
